@@ -1,0 +1,19 @@
+@startuml
+!include C4_Context.puml
+
+title Система управления отоплением "Тёплый дом"
+
+System(warmhouse, "Умный дом", "Система управления отоплением")
+Person_Ext(customer1, "Пользователь", "Пользователь системы")
+Person_Ext(customer2, "Пользователь", "Пользователь системы")
+Person(employee1, "Сотрудник", "Специалист подключения")
+System_Ext(sensor1, "Датчик", "Датчик отопления")
+System_Ext(sensor2, "Датчик", "Датчик отопления")
+
+Rel(customer1, warmhouse, "Включает/отключает отопление", "HTTP")
+Rel_Back(customer2, warmhouse, "Получает данные температуры", "HTTP")
+Rel(warmhouse, sensor2, "Отправляет команду")
+Rel_Back(warmhouse, sensor1, "Получает данные")
+Rel(employee1, warmhouse, "Управление датчиками (регистрация, удаление)", "HTTP")
+
+@enduml
