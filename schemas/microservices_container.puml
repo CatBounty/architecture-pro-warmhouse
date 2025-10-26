@@ -1,0 +1,61 @@
+@startuml
+!include C4_Container.puml
+
+title Диаграмма контейнеров (Container) - Микросервисная архитектура "Умный дом"
+
+
+Person(user, "Пользователь", "Владелец умного дома")
+Person(admin, "Администратор", "Сотрудник поддержки")
+
+System_Boundary(smarthouse, "Система управления домом") {
+    Container(web_ui, "Веб панель управления", "Angular Micro Frontends (Module Federation)", "Панель управления устройствами и просмотра состояния")
+
+    Container(device_management_service, "Device Management Service", "Java/Kotlin", "Управление жизненным циклом устройств (датчиков)")
+    Container(device_monitoring_service, "Device Monitoring Service", "Java/Kotlin", "Сбор и хранение телеметрии с датчиков")
+    Container(device_control_service, "Device Control Service", "Java/Kotlin", "Логика и сценарии управления умным домом. Scheduler")
+    Container(notification_service, "Notification Service", "Java/Kotlin", "Отправка уведомлений пользователям")
+
+    ContainerDb(device_management_db, "Device Management Database", "PostgreSQL", "Хранение информации об устройствах")
+    ContainerDb(device_control_db, "Device Control Database", "PostgreSQL", "Хранение сценариев управления и истории команд")
+    ContainerDb(monitoring_db, "Monitoring Database", "TimescaleDB", "Хранение временных рядов телеметрии")
+
+    ContainerQueue(message_broker, "Message Broker", "RabbitMQ", "Асинхронная коммуникация между сервисами")
+    ContainerQueue(mqtt_broker, "Device Message Broker", "EMQX", "Брокер для обмена данными с устройствами")
+}
+
+System_Ext(temperature_api, "Temperature API", "Внешний сервис получения данных о температуре")
+System_Ext(iot_controller, "Контроллер", "IoT контроллер в доме")
+System_Ext(iot_device1, "Физический датчик", "IoT устройство в доме")
+System_Ext(iot_device2, "Физический датчик", "IoT устройство в доме")
+
+Rel(user, web_ui, "Управляет устройствами, настраивает сценарии, просматривает данные", "HTTPS/REST")
+Rel(admin, web_ui, "Управляет пользователями и домами", "HTTPS/REST")
+
+Rel(web_ui, device_management_service, "Вызывает API управления устройствами", "HTTP/REST")
+Rel(web_ui, device_monitoring_service, "Вызывает API мониторинга", "HTTP/REST")
+Rel(web_ui, device_control_service, "Вызывает API сценариев", "HTTP/REST")
+
+Rel(device_management_service, device_management_db, "Читает/пишет данные устройств", "SQL/TCP")
+Rel(device_monitoring_service, monitoring_db, "Записывает временные ряды", "SQL/TCP")
+Rel(device_control_service, device_control_db, "Читает/пишет правила и команды", "SQL/TCP")
+
+Rel(device_management_service, message_broker, "Публикует события (DeviceCreated, DeviceStatusChanged)", "AMQP")
+Rel(device_monitoring_service, message_broker, "Публикует события (TelemetryReceived)", "AMQP")
+Rel(device_monitoring_service, temperature_api, "Получает данные температуры", "HTTP/REST")
+Rel(mqtt_broker, device_monitoring_service, "Получение данных телеметрии", "MQTT")
+Rel(mqtt_broker, device_management_service, "Регистрация устройств", "MQTT")
+Rel(device_control_service, mqtt_broker, "Управление устройствами", "MQTT")
+
+Rel(device_control_service, message_broker, "Получает результат выполнения команды от устройства", "AMQP")
+Rel(device_control_service, device_management_service, "Запрашивает статус устройств", "HTTP/REST")
+
+Rel(notification_service, message_broker, "Подписан на критичные события", "AMQP")
+Rel(notification_service, user, "Отправляет уведомления", "Email/Push")
+
+Rel(iot_controller, mqtt_broker, "Отправка данных телеметрии, регистрация устройства", "MQTT")
+Rel_Back(iot_controller, mqtt_broker, "Получение команд управления устройством", "MQTT")
+
+Rel(iot_controller, iot_device1, "Управление устройством", "Bluetooth")
+Rel(iot_controller, iot_device2, "Управление устройством", "Zigbee")
+
+@enduml

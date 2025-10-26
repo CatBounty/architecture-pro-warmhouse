@@ -1,0 +1,48 @@
+@startuml
+!include C4_Component.puml
+
+
+title Диаграмма компонентов - Device Management Service
+
+Container_Boundary(device_service, "Device Management Service") {
+    Component(device_controller, "Device Controller", "REST Controller", "Обрабатывает HTTP запросы для управления устройствами")
+    Component(info_controller, "Info Controller", "REST Controller", "Предоставляет информацию о текущих устройствах и их состоянии")
+    Component(device_consumer, "Device Consumer", "Consumer", "Подписан на очереди для обновления данных об устройствах")
+    Component(device_domain, "Device Domain Logic", "Domain Service", "Бизнес-логика управления жизненным циклом устройств")
+    Component(device_repository, "Device Repository", "Repository Pattern", "Доступ к данным устройств")
+    Component(device_event_publisher, "Event Publisher", "Message Publisher", "Публикует доменные события в message broker")
+    Component(device_validator, "Device Validator", "Validation Service", "Валидация данных устройств")
+}
+
+ContainerDb(device_db, "Device Database", "PostgreSQL", "Хранилище данных устройств")
+ContainerQueue(message_broker, "Message Broker", "RabbitMQ", "Шина событий")
+ContainerQueue(mqtt_broker, "Device Message Broker", "EMQX", "Брокер для обмена данными с устройствами")
+
+Rel(device_controller, device_domain, "Вызывает бизнес-логику", "Function Call")
+Rel(device_consumer, device_domain, "Вызывает бизнес-логику", "Function Call")
+Rel(device_controller, device_validator, "Валидирует входные данные", "Function Call")
+Rel(device_consumer, device_validator, "Валидирует входные данные", "Function Call")
+Rel(device_domain, device_repository, "Сохраняет/читает устройства", "Function Call")
+Rel(device_domain, device_event_publisher, "Публикует события", "Function Call")
+Rel(device_repository, device_db, "Выполняет SQL запросы", "SQL/TCP")
+Rel_Back(device_consumer, mqtt_broker, "Получение события от устройства", "AMQP")
+Rel(device_event_publisher, message_broker, "Отправляет события", "AMQP")
+Rel(info_controller, device_repository, "Читает данные устройства", "Function Call")
+
+note right of device_domain
+  **Основные операции:**
+  - CreateDevice
+  - UpdateDevice
+  - DeleteDevice
+  - GetDeviceById
+  - ListDevices
+  - UpdateDeviceStatus
+
+  **События:**
+  - DeviceCreated
+  - DeviceUpdated
+  - DeviceDeleted
+  - DeviceStatusChanged
+end note
+
+@enduml

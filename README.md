@@ -83,11 +83,15 @@
 
 **Диаграмма контейнеров (Containers)**
 
-Добавьте диаграмму.
+![Диаграмма контейнеров (Image)](schemas/microservices_container.svg)
+
+[Диаграмма контейнеров (PlantUML)](schemas/microservices_container.puml)
 
 **Диаграмма компонентов (Components)**
 
-Добавьте диаграмму для каждого из выделенных микросервисов.
+![Диаграмма компонента device_management_service_component(Image)](schemas/device_management_service_component.svg)
+
+[Диаграмма компонента Device Management Service(PlantUML)](schemas/device_management_service_component.puml)
 
 **Диаграмма кода (Code)**
 
