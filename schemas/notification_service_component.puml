@@ -1,0 +1,39 @@
+@startuml
+!include С4/C4_Component.puml
+
+
+title Диаграмма компонентов - Notification Service
+
+Container_Boundary(notification_service, "Notification Service") {
+    Component(notification_controller, "Notification Controller", "REST Controller", "Управление настройками уведомлений")
+    Component(notification_event_handler, "Event Handler", "Message Consumer", "Обработка событий от других сервисов")
+    Component(notification_dispatcher, "Notification Dispatcher", "Dispatcher Service", "Отправка уведомлений через разные каналы")
+    Component(notification_repository, "Notification Repository", "Repository Pattern", "Хранение истории уведомлений и настроек")
+    Component(email_sender, "Email Sender", "Email Client", "Отправка email уведомлений")
+    Component(push_sender, "Push Notification Sender", "Push Service", "Отправка push уведомлений")
+}
+
+ContainerDb(notification_db, "Notification Database", "PostgreSQL", "Настройки и история уведомлений")
+ContainerQueue(message_broker, "Message Broker", "RabbitMQ", "Шина событий")
+
+Rel(notification_controller, notification_repository, "Управляет настройками", "Function Call")
+Rel(notification_event_handler, message_broker, "Подписан на события", "AMQP")
+Rel(notification_event_handler, notification_dispatcher, "Создает уведомления", "Function Call")
+Rel(notification_dispatcher, email_sender, "Отправка email", "Function Call")
+Rel(notification_dispatcher, push_sender, "Отправка push", "Function Call")
+Rel(notification_dispatcher, notification_repository, "Сохраняет историю", "Function Call")
+Rel(notification_repository, notification_db, "SQL запросы", "SQL/TCP")
+
+note right of notification_event_handler
+  **Обрабатываемые события:**
+  - TemperatureThresholdExceeded
+  - SensorOffline
+  - HeatingTurnedOn/Off
+  - DeviceStatusChanged
+
+  **Типы уведомлений:**
+  - Email
+  - Push notification
+end note
+
+@enduml

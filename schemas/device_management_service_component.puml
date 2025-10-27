@@ -1,5 +1,5 @@
 @startuml
-!include C4_Component.puml
+!include С4/C4_Component.puml
 
 
 title Диаграмма компонентов - Device Management Service

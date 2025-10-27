@@ -1,5 +1,5 @@
 @startuml
-!include C4_Container.puml
+!include С4/C4_Container.puml
 
 title Диаграмма контейнеров (Container) - Микросервисная архитектура "Умный дом"
 

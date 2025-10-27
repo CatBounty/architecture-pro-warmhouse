@@ -1,0 +1,51 @@
+@startuml
+!include С4/C4_Component.puml
+
+title Диаграмма компонентов - Device Control Service
+
+Container_Boundary(Device_service, "Device Control Service") {
+    Component(Device_controller, "Device Controller", "REST Controller", "Обрабатывает HTTP запросы управления")
+    Component(Device_scheduler, "Device Scheduler", "Scheduler", "Планировщик заданий")
+    Component(Device_engine, "Device Control Engine", "Control Logic", "Основная логика управления устройствами")
+    Component(Device_repository, "Device Repository", "Repository Pattern", "Хранение правил и истории команд")
+    Component(Device_event_handler, "Event Handler", "Message Consumer", "Обработка событий телеметрии")
+    Component(Device_command_publisher, "Command Publisher", "Message Publisher", "Отправка команд устройствам")
+    Component(device_management_client, "Device Management Service Client", "HTTP Client", "Интеграция с Device Management Service")
+}
+
+ContainerDb(Device_db, "Device Database", "PostgreSQL", "Сценарии, правила и история команд")
+ContainerQueue(message_broker, "Message Broker", "RabbitMQ", "Шина событий")
+ContainerQueue(mqtt_broker, "Device Message Broker", "EMQX", "Брокер для обмена данными с устройствами")
+Container(device_service, "Device Management Service", "Управление жизненным циклом устройств")
+
+Rel(Device_controller, Device_engine, "Вызывает логику управления", "Function Call")
+Rel(Device_scheduler, Device_engine, "Вызывает логику управления", "Function Call")
+Rel(Device_engine, Device_repository, "Сохраняет команды, сохраняет/читает правила", "Function Call")
+Rel(Device_engine, Device_command_publisher, "Отправляет команды", "Function Call")
+Rel(Device_engine, device_management_client, "Проверяет статус устройств", "Function Call")
+Rel(Device_event_handler, message_broker, "Подписан на TelemetryReceived", "AMQP")
+Rel(Device_event_handler, Device_engine, "Передает данные телеметрии", "Function Call")
+Rel(Device_repository, Device_db, "Выполняет SQL запросы", "SQL/TCP")
+Rel(Device_command_publisher, mqtt_broker, "Публикует команды", "MQTT")
+Rel(device_management_client, device_service, "Получение статуса устройства", "HTTP/REST")
+
+note right of Device_engine
+  **Основные операции:**
+  - TurnDeviceOn
+  - TurnDeviceOff
+  - SetTargetTemperature
+  - MaintainTemperature (автоматика)
+  - GetDeviceStatus
+
+  **Алгоритм:**
+  1. Получение телеметрии
+  2. Сравнение с целевой температурой
+  3. Принятие решения (ПИД-регулятор)
+  4. Отправка команды устройству
+
+  **Команды:**
+  - DeviceTurnOnCommand
+  - DeviceTurnOffCommand
+end note
+
+@enduml

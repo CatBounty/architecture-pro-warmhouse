@@ -1,0 +1,29 @@
+@startuml
+!include С4/C4_Component.puml
+
+
+title Диаграмма компонентов - Device Monitoring Service
+
+Container_Boundary(device_service, "Device Monitoring Service") {
+    Component(monitoring_controller, "Monitoring Controller", "REST Controller", "API для получения истории и отчётов")
+    Component(device_monitoring_consumer, "Device Monitoring Consumer", "Consumer", "Подписан на очереди для обновления событий от устройств")
+    Component(device_monitoring_router, "Device Monitoring Router", "Domain Service", "Логика маршрутизации событий телеметрии, фильтрация")
+    Component(monitoring_reporter, "Device Monitoring Reports", "Domain Service", "Формирование отчётов")
+    Component(device_monitoring_repository, "Monitoring Repository", "Repository Pattern", "Доступ к данным телеметрии")
+    Component(monitoring_event_publisher, "Event Publisher", "Message Publisher", "Публикует доменные события в message broker")
+}
+
+ContainerDb(monitoring_db, "Monitoring Database", "TimescaleDB", "Хранение временных рядов телеметрии")
+ContainerQueue(message_broker, "Message Broker", "RabbitMQ", "Шина событий")
+ContainerQueue(mqtt_broker, "Device Message Broker", "EMQX", "Брокер для обмена данными с устройствами")
+
+Rel(monitoring_controller, monitoring_reporter, "Читает отчёты", "Function Call")
+Rel(monitoring_reporter, device_monitoring_repository, "Запрашивает данные из материализованных представлений", "Function Call")
+Rel(device_monitoring_router, device_monitoring_repository, "Пишет события", "Function Call")
+Rel(device_monitoring_consumer, device_monitoring_router, "Передаёт события", "Function Call")
+Rel(device_monitoring_router, monitoring_event_publisher, "Публикует события", "Function Call")
+Rel(device_monitoring_repository, monitoring_db, "Выполняет SQL запросы", "SQL/TCP")
+Rel_Back(device_monitoring_consumer, mqtt_broker, "Получение события от устройства", "MQTT")
+Rel(monitoring_event_publisher, message_broker, "Отправляет события", "AMQP")
+
+@enduml
