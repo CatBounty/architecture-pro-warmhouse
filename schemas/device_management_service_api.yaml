@@ -1,0 +1,566 @@
+openapi: 3.0.3
+info:
+  title: Device Management Service API
+  description: |
+    REST API для управления устройствами умного дома в системе SmartHouse.
+
+    Сервис отвечает за управление жизненным циклом устройств (датчиков, термостатов, систем уравления электропитанием),
+    их регистрацию, конфигурирование и мониторинг состояния.
+
+    ## Основные функции:
+    - CRUD операции для устройств
+    - Управление статусом устройств
+    - Получение информации о текущем состоянии устройств
+    - Публикация доменных событий при изменениях
+
+    ## Интеграция:
+    - Получает события от устройств через MQTT брокер (EMQX)
+    - Публикует события в RabbitMQ для других микросервисов
+    - Хранит данные в PostgreSQL
+  version: 1.0.0
+  contact:
+    name: SmartHouse Development Team
+    email: it.fireteam@gmail.com
+
+servers:
+  - url: http://localhost:8082/api/v1
+    description: Development server
+  - url: http://device-management:8082/api/v1
+    description: Docker internal network
+
+tags:
+  - name: devices
+    description: Управление устройствами (CRUD операции)
+  - name: info
+    description: Информация о состоянии устройств
+
+paths:
+  /devices:
+    get:
+      tags:
+        - devices
+      summary: Получить список всех устройств
+      description: Возвращает список всех зарегистрированных устройств с возможностью фильтрации
+      operationId: listDevices
+      parameters:
+        - name: type
+          in: query
+          description: Фильтр по типу устройства
+          required: false
+          schema:
+            type: string
+            enum: [sensor, thermostat, actuator, controller]
+        - name: status
+          in: query
+          description: Фильтр по статусу устройства
+          required: false
+          schema:
+            type: string
+            enum: [active, inactive, offline, error]
+        - name: location
+          in: query
+          description: Фильтр по местоположению
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Максимальное количество записей
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Успешное получение списка устройств
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  total:
+                    type: integer
+                    description: Общее количество устройств
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - devices
+      summary: Создать новое устройство
+      description: Регистрирует новое устройство в системе. Публикует событие DeviceCreated.
+      operationId: createDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreate'
+      responses:
+        '201':
+          description: Устройство успешно создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Устройство с таким device_id уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /devices/{deviceId}:
+    get:
+      tags:
+        - devices
+      summary: Получить устройство по ID
+      description: Возвращает детальную информацию об устройстве
+      operationId: getDeviceById
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Успешное получение устройства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags:
+        - devices
+      summary: Обновить устройство
+      description: Обновляет данные устройства. Публикует событие DeviceUpdated.
+      operationId: updateDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceUpdate'
+      responses:
+        '200':
+          description: Устройство успешно обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags:
+        - devices
+      summary: Удалить устройство
+      description: Удаляет устройство из системы. Публикует событие DeviceDeleted.
+      operationId: deleteDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '204':
+          description: Устройство успешно удалено
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /devices/{deviceId}/status:
+    patch:
+      tags:
+        - devices
+      summary: Обновить статус устройства
+      description: Изменяет статус устройства (active/inactive/offline/error). Публикует событие DeviceStatusChanged.
+      operationId: updateDeviceStatus
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [active, inactive, offline, error]
+                  description: Новый статус устройства
+                reason:
+                  type: string
+                  description: Причина изменения статуса (опционально)
+                  maxLength: 255
+      responses:
+        '200':
+          description: Статус успешно обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /info/devices/{deviceId}/state:
+    get:
+      tags:
+        - info
+      summary: Получить текущее состояние устройства
+      description: Возвращает актуальное состояние устройства, включая последние показания и метаданные
+      operationId: getDeviceState
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Успешное получение состояния устройства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /info/devices/location/{location}:
+    get:
+      tags:
+        - info
+      summary: Получить устройства по местоположению
+      description: Возвращает список устройств в указанном местоположении
+      operationId: getDevicesByLocation
+      parameters:
+        - name: location
+          in: path
+          required: true
+          description: Местоположение устройств (например, "Living Room", "Bedroom")
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Успешное получение списка устройств
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  location:
+                    type: string
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  count:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: Уникальный идентификатор устройства
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Device:
+      type: object
+      required:
+        - id
+        - device_id
+        - name
+        - type
+        - status
+        - location
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          description: Внутренний ID в базе данных (автоинкремент)
+          example: 1
+        device_id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор устройства
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Название устройства
+          maxLength: 100
+          example: "Living Room Temperature Sensor"
+        type:
+          type: string
+          enum: [sensor, thermostat, actuator, controller]
+          description: Тип устройства
+          example: "sensor"
+        subtype:
+          type: string
+          description: Подтип устройства (например, "temperature", "humidity", "valve")
+          maxLength: 50
+          example: "temperature"
+        location:
+          type: string
+          description: Местоположение устройства
+          maxLength: 100
+          example: "Living Room"
+        status:
+          type: string
+          enum: [active, inactive, offline, error]
+          description: Текущий статус устройства
+          example: "active"
+        metadata:
+          type: object
+          description: Дополнительные метаданные устройства (JSON)
+          additionalProperties: true
+          example:
+            manufacturer: "SensorTech"
+            model: "ST-100"
+            firmware_version: "2.1.0"
+        configuration:
+          type: object
+          description: Конфигурация устройства (JSON)
+          additionalProperties: true
+          example:
+            polling_interval: 60
+            unit: "celsius"
+            threshold_min: 15
+            threshold_max: 30
+        last_seen:
+          type: string
+          format: date-time
+          description: Время последней активности устройства
+          nullable: true
+          example: "2025-11-02T10:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          description: Время создания записи
+          example: "2025-11-01T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Время последнего обновления
+          example: "2025-11-02T10:30:00Z"
+
+    DeviceCreate:
+      type: object
+      required:
+        - name
+        - type
+        - location
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор устройства (опционально, будет сгенерирован если не указан)
+        name:
+          type: string
+          description: Название устройства
+          minLength: 1
+          maxLength: 100
+          example: "Living Room Temperature Sensor"
+        type:
+          type: string
+          enum: [sensor, thermostat, actuator, controller]
+          description: Тип устройства
+          example: "sensor"
+        subtype:
+          type: string
+          description: Подтип устройства
+          maxLength: 50
+          example: "temperature"
+        location:
+          type: string
+          description: Местоположение устройства
+          minLength: 1
+          maxLength: 100
+          example: "Living Room"
+        status:
+          type: string
+          enum: [active, inactive, offline, error]
+          description: Начальный статус (по умолчанию "inactive")
+          default: "inactive"
+        metadata:
+          type: object
+          description: Дополнительные метаданные устройства
+          additionalProperties: true
+        configuration:
+          type: object
+          description: Конфигурация устройства
+          additionalProperties: true
+
+    DeviceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Название устройства
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          enum: [sensor, thermostat, actuator, controller]
+          description: Тип устройства
+        subtype:
+          type: string
+          description: Подтип устройства
+          maxLength: 50
+        location:
+          type: string
+          description: Местоположение устройства
+          minLength: 1
+          maxLength: 100
+        metadata:
+          type: object
+          description: Дополнительные метаданные устройства
+          additionalProperties: true
+        configuration:
+          type: object
+          description: Конфигурация устройства
+          additionalProperties: true
+
+    DeviceState:
+      type: object
+      required:
+        - device_id
+        - status
+        - timestamp
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор устройства
+        name:
+          type: string
+          description: Название устройства
+        type:
+          type: string
+          description: Тип устройства
+        status:
+          type: string
+          enum: [active, inactive, offline, error]
+          description: Текущий статус устройства
+        location:
+          type: string
+          description: Местоположение устройства
+        last_value:
+          type: object
+          description: Последние показания устройства (зависит от типа)
+          additionalProperties: true
+          example:
+            temperature: 22.5
+            unit: "celsius"
+        last_seen:
+          type: string
+          format: date-time
+          description: Время последней активности
+        connection_status:
+          type: string
+          enum: [connected, disconnected]
+          description: Статус подключения к MQTT брокеру
+        error_message:
+          type: string
+          description: Сообщение об ошибке (если status = error)
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          description: Время формирования состояния
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+          example: "DEVICE_NOT_FOUND"
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки
+          example: "Device with ID 550e8400-e29b-41d4-a716-446655440000 not found"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Validation failed"
+            details:
+              field: "name"
+              reason: "Field is required"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "DEVICE_NOT_FOUND"
+            message: "Device with ID 550e8400-e29b-41d4-a716-446655440000 not found"
+
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_ERROR"
+            message: "An unexpected error occurred"

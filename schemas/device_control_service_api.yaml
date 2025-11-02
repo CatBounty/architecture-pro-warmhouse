@@ -1,0 +1,1073 @@
+openapi: 3.0.3
+info:
+  title: Device Control Service API
+  description: |
+    Микросервис управления устройствами системы умного дома.
+
+    **Основные функции:**
+    - Управление устройствами (включение/выключение, установка параметров)
+    - Автоматическое поддержание значений
+    - Обработка событий телеметрии для автоматизации
+    - Планирование заданий (сценарии по расписанию)
+    - Управление правилами автоматизации
+
+    **Архитектурные особенности:**
+    - REST API для синхронного управления
+    - Event-driven обработка телеметрии (подписка на события через RabbitMQ)
+    - Публикация команд устройствам через MQTT брокер (EMQX)
+    - Интеграция с Device Management Service для проверки статуса устройств
+
+    **Алгоритм автоматического регулирования:**
+    1. Получение данных телеметрии
+    2. Сравнение с целевым значением
+    3. Принятие решения на основе регулятора
+    4. Отправка команды устройству (включить/выключить/установить мощность)
+  version: 1.0.0
+  contact:
+    name: SmartHouse Development Team
+    email: it.fireteam@gmail.com
+
+servers:
+  - url: http://localhost:8084/api/v1
+    description: Development server
+  - url: http://device-control:8084/api/v1
+    description: Docker internal network
+
+tags:
+  - name: Device Control
+    description: Управление состоянием устройств
+  - name: Automation Rules
+    description: Правила автоматизации и сценарии
+  - name: Command History
+    description: История выполненных команд
+  - name: Schedules
+    description: Управление расписаниями
+
+paths:
+  /devices/{deviceId}/turn-on:
+    post:
+      summary: Включить устройство
+      description: Отправляет команду на включение устройства через MQTT
+      operationId: turnDeviceOn
+      tags:
+        - Device Control
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Команда успешно отправлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /devices/{deviceId}/turn-off:
+    post:
+      summary: Выключить устройство
+      description: Отправляет команду на выключение устройства через MQTT
+      operationId: turnDeviceOff
+      tags:
+        - Device Control
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Команда успешно отправлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /devices/{deviceId}/set-value:
+    post:
+      summary: Установить целевое значение
+      description: |
+        Устанавливает целевое значение для свойства устройства.
+      operationId: setTargetValue
+      tags:
+        - Device Control
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetValueRequest'
+      responses:
+        '200':
+          description: Целевое значение установлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /devices/{deviceId}/status:
+    get:
+      summary: Получить статус устройства
+      description: |
+        Получает текущий статус устройства из Device Management Service
+        и последнюю выполненную команду из локальной базы данных
+      operationId: getDeviceStatus
+      tags:
+        - Device Control
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Статус устройства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /automation-rules:
+    get:
+      summary: Получить список правил автоматизации
+      description: Возвращает все настроенные правила автоматизации
+      operationId: listAutomationRules
+      tags:
+        - Automation Rules
+      parameters:
+        - name: enabled
+          in: query
+          description: Фильтр по статусу (включено/выключено)
+          required: false
+          schema:
+            type: boolean
+        - name: deviceId
+          in: query
+          description: Фильтр по ID устройства
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список правил автоматизации
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AutomationRule'
+                  total:
+                    type: integer
+                    example: 5
+
+    post:
+      summary: Создать правило автоматизации
+      description: |
+        Создает новое правило автоматизации.
+        Правило срабатывает при получении событий телеметрии, соответствующих условиям.
+      operationId: createAutomationRule
+      tags:
+        - Automation Rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAutomationRuleRequest'
+      responses:
+        '201':
+          description: Правило создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /automation-rules/{ruleId}:
+    get:
+      summary: Получить правило автоматизации
+      description: Возвращает детальную информацию о правиле автоматизации
+      operationId: getAutomationRule
+      tags:
+        - Automation Rules
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Правило автоматизации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Обновить правило автоматизации
+      description: Обновляет существующее правило автоматизации
+      operationId: updateAutomationRule
+      tags:
+        - Automation Rules
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAutomationRuleRequest'
+      responses:
+        '200':
+          description: Правило обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Удалить правило автоматизации
+      description: Удаляет правило автоматизации
+      operationId: deleteAutomationRule
+      tags:
+        - Automation Rules
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '204':
+          description: Правило удалено
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /automation-rules/{ruleId}/enable:
+    post:
+      summary: Включить правило автоматизации
+      description: Активирует правило автоматизации
+      operationId: enableAutomationRule
+      tags:
+        - Automation Rules
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Правило включено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /automation-rules/{ruleId}/disable:
+    post:
+      summary: Выключить правило автоматизации
+      description: Деактивирует правило автоматизации
+      operationId: disableAutomationRule
+      tags:
+        - Automation Rules
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Правило выключено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /commands:
+    get:
+      summary: Получить историю команд
+      description: Возвращает историю выполненных команд с возможностью фильтрации
+      operationId: listCommands
+      tags:
+        - Command History
+      parameters:
+        - name: deviceId
+          in: query
+          description: Фильтр по ID устройства
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Фильтр по статусу выполнения
+          required: false
+          schema:
+            type: string
+            enum: [pending, sent, acknowledged, failed]
+        - name: from
+          in: query
+          description: Начало временного диапазона (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Конец временного диапазона (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Максимальное количество записей
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: История команд
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CommandHistory'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /commands/{commandId}:
+    get:
+      summary: Получить информацию о команде
+      description: Возвращает детальную информацию о выполненной команде
+      operationId: getCommand
+      tags:
+        - Command History
+      parameters:
+        - $ref: '#/components/parameters/CommandId'
+      responses:
+        '200':
+          description: Информация о команде
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandHistory'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /schedules:
+    get:
+      summary: Получить список расписаний
+      description: Возвращает все настроенные расписания
+      operationId: listSchedules
+      tags:
+        - Schedules
+      parameters:
+        - name: enabled
+          in: query
+          description: Фильтр по статусу
+          required: false
+          schema:
+            type: boolean
+        - name: deviceId
+          in: query
+          description: Фильтр по ID устройства
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список расписаний
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Schedule'
+                  total:
+                    type: integer
+
+    post:
+      summary: Создать расписание
+      description: |
+        Создает новое расписание для автоматического выполнения команд.
+        Использует cron-синтаксис для определения времени выполнения.
+      operationId: createSchedule
+      tags:
+        - Schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Расписание создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /schedules/{scheduleId}:
+    get:
+      summary: Получить расписание
+      description: Возвращает детальную информацию о расписании
+      operationId: getSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '200':
+          description: Расписание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Обновить расписание
+      description: Обновляет существующее расписание
+      operationId: updateSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleRequest'
+      responses:
+        '200':
+          description: Расписание обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Удалить расписание
+      description: Удаляет расписание
+      operationId: deleteSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '204':
+          description: Расписание удалено
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          example: healthy
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        database:
+          type: string
+          enum: [connected, disconnected]
+          example: connected
+        messageBroker:
+          type: string
+          enum: [connected, disconnected]
+          example: connected
+        mqttBroker:
+          type: string
+          enum: [connected, disconnected]
+          example: connected
+
+    CommandResponse:
+      type: object
+      required:
+        - commandId
+        - deviceId
+        - command
+        - status
+        - timestamp
+      properties:
+        commandId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        deviceId:
+          type: string
+          example: "device-001"
+        command:
+          type: string
+          enum: [turn_on, turn_off, set_value]
+          example: turn_on
+        payload:
+          type: object
+          description: Дополнительные параметры команды
+          additionalProperties: true
+          example:
+            target_value: 22.5
+        status:
+          type: string
+          enum: [pending, sent, acknowledged, failed]
+          example: sent
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        message:
+          type: string
+          example: "Command sent to device successfully"
+
+    SetValueRequest:
+      type: object
+      required:
+        - targetValue
+      properties:
+        targetValue:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          example: 22.5
+          description: Целевое значение (например, в градусах Цельсия)
+        mode:
+          type: string
+          enum: [auto, manual]
+          default: auto
+          description: |
+            auto - автоматическое поддержание значения
+            manual - однократная установка значения
+
+    DeviceStatusResponse:
+      type: object
+      required:
+        - deviceId
+        - currentStatus
+        - timestamp
+      properties:
+        deviceId:
+          type: string
+          example: "device-001"
+        currentStatus:
+          type: string
+          enum: [online, offline, error]
+          example: online
+        lastCommand:
+          $ref: '#/components/schemas/CommandHistory'
+        targetValue:
+          type: number
+          format: float
+          example: 22.5
+          description: Целевое значение (если установлено)
+        currentValue:
+          type: number
+          format: float
+          example: 21.3
+          description: Текущее значение (из последней телеметрии)
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+
+    AutomationRule:
+      type: object
+      required:
+        - id
+        - name
+        - deviceId
+        - conditions
+        - actions
+        - enabled
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        name:
+          type: string
+          maxLength: 200
+          example: "Включить обогрев если холодно"
+        description:
+          type: string
+          maxLength: 1000
+          example: "Автоматически включает обогрев когда температура падает ниже 18°C"
+        deviceId:
+          type: string
+          example: "device-001"
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleCondition'
+          minItems: 1
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleAction'
+          minItems: 1
+        enabled:
+          type: boolean
+          example: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+          description: Приоритет выполнения (выше значение - выше приоритет)
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        lastTriggered:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+          description: Время последнего срабатывания правила
+
+    RuleCondition:
+      type: object
+      required:
+        - type
+        - operator
+        - value
+      properties:
+        type:
+          type: string
+          enum: [value, humidity, time, device_status]
+          example: value
+        operator:
+          type: string
+          enum: [eq, ne, gt, gte, lt, lte, between]
+          example: lt
+          description: |
+            eq - равно
+            ne - не равно
+            gt - больше
+            gte - больше или равно
+            lt - меньше
+            lte - меньше или равно
+            between - в диапазоне
+        value:
+          oneOf:
+            - type: number
+            - type: string
+            - type: array
+              items:
+                type: number
+          example: 18.0
+          description: Значение для сравнения (для between - массив из двух значений)
+
+    RuleAction:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [turn_on, turn_off, set_value, notify]
+          example: turn_on
+        parameters:
+          type: object
+          additionalProperties: true
+          example:
+            target_value: 22.5
+          description: Параметры действия (зависят от типа)
+
+    CreateAutomationRuleRequest:
+      type: object
+      required:
+        - name
+        - deviceId
+        - conditions
+        - actions
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          example: "Включить обогрев если холодно"
+        description:
+          type: string
+          maxLength: 1000
+        deviceId:
+          type: string
+          example: "device-001"
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleCondition'
+          minItems: 1
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleAction'
+          minItems: 1
+        enabled:
+          type: boolean
+          default: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+
+    UpdateAutomationRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleCondition'
+          minItems: 1
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleAction'
+          minItems: 1
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 100
+
+    CommandHistory:
+      type: object
+      required:
+        - id
+        - deviceId
+        - command
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440002"
+        deviceId:
+          type: string
+          example: "device-001"
+        command:
+          type: string
+          enum: [turn_on, turn_off, set_value]
+          example: turn_on
+        payload:
+          type: object
+          additionalProperties: true
+          example:
+            target_value: 22.5
+        status:
+          type: string
+          enum: [pending, sent, acknowledged, failed]
+          example: acknowledged
+        source:
+          type: string
+          enum: [manual, automation, schedule]
+          example: automation
+          description: Источник команды
+        ruleId:
+          type: string
+          format: uuid
+          description: ID правила автоматизации (если команда от правила)
+        scheduleId:
+          type: string
+          format: uuid
+          description: ID расписания (если команда от расписания)
+        error:
+          type: string
+          description: Сообщение об ошибке (если status = failed)
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        sentAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:01Z"
+        acknowledgedAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:02Z"
+
+    Schedule:
+      type: object
+      required:
+        - id
+        - name
+        - deviceId
+        - cronExpression
+        - action
+        - enabled
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440003"
+        name:
+          type: string
+          maxLength: 200
+          example: "Включить обогрев утром"
+        description:
+          type: string
+          maxLength: 1000
+          example: "Включает обогрев каждое утро в 7:00"
+        deviceId:
+          type: string
+          example: "device-001"
+        cronExpression:
+          type: string
+          example: "0 7 * * *"
+          description: |
+            Cron выражение для планирования задачи
+            Формат: минута час день месяц день_недели
+            Примеры:
+            - "0 7 * * *" - каждый день в 7:00
+            - "*/30 * * * *" - каждые 30 минут
+            - "0 18 * * 1-5" - в 18:00 по будням
+        action:
+          $ref: '#/components/schemas/RuleAction'
+        enabled:
+          type: boolean
+          example: true
+        timezone:
+          type: string
+          default: "UTC"
+          example: "Europe/Moscow"
+          description: Часовой пояс для интерпретации cron выражения
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        lastRun:
+          type: string
+          format: date-time
+          example: "2025-01-15T07:00:00Z"
+          description: Время последнего выполнения
+        nextRun:
+          type: string
+          format: date-time
+          example: "2025-01-16T07:00:00Z"
+          description: Время следующего выполнения
+
+    CreateScheduleRequest:
+      type: object
+      required:
+        - name
+        - deviceId
+        - cronExpression
+        - action
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        deviceId:
+          type: string
+        cronExpression:
+          type: string
+        action:
+          $ref: '#/components/schemas/RuleAction'
+        enabled:
+          type: boolean
+          default: true
+        timezone:
+          type: string
+          default: "UTC"
+
+    UpdateScheduleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        cronExpression:
+          type: string
+        action:
+          $ref: '#/components/schemas/RuleAction'
+        enabled:
+          type: boolean
+        timezone:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - timestamp
+      properties:
+        error:
+          type: string
+          example: "DeviceNotFound"
+        message:
+          type: string
+          example: "Device with ID 'device-001' not found"
+        details:
+          type: object
+          additionalProperties: true
+          description: Дополнительная информация об ошибке
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+        path:
+          type: string
+          example: "/api/v1/devices/device-001/turn-on"
+
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: Уникальный идентификатор устройства
+      schema:
+        type: string
+      example: "device-001"
+
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      description: Уникальный идентификатор правила автоматизации
+      schema:
+        type: string
+        format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440001"
+
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      description: Уникальный идентификатор команды
+      schema:
+        type: string
+        format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440002"
+
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      description: Уникальный идентификатор расписания
+      schema:
+        type: string
+        format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440003"
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "ValidationError"
+            message: "Invalid request parameters"
+            details:
+              field: "targetValue"
+              reason: "Value must be between 10 and 35"
+            timestamp: "2025-01-15T10:30:00Z"
+            path: "/api/v1/devices/device-001/set-value"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "NotFound"
+            message: "Device with ID 'device-001' not found"
+            timestamp: "2025-01-15T10:30:00Z"
+            path: "/api/v1/devices/device-001/turn-on"
+
+    InternalServerError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "InternalServerError"
+            message: "Failed to process request"
+            timestamp: "2025-01-15T10:30:00Z"
+            path: "/api/v1/devices/device-001/turn-on"

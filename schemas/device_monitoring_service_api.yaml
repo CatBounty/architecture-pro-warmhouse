@@ -1,0 +1,668 @@
+openapi: 3.0.3
+info:
+  title: Device Monitoring Service API
+  description: |
+    REST API для мониторинга истории телеметрии и формирования отчётов в системе SmartHouse.
+
+    Сервис отвечает за хранение и анализ временных рядов телеметрии от устройств умного дома,
+    предоставляет API для получения исторических данных и генерации аналитических отчётов.
+
+    ## Основные функции:
+    - Получение исторических данных телеметрии с фильтрацией
+    - Агрегация и статистический анализ временных рядов
+    - Формирование отчётов о работе устройств
+    - Мониторинг трендов показателей и качества данных
+
+    ## Интеграция:
+    - Получает события телеметрии через MQTT брокер (EMQX) от устройств
+    - Публикует аналитические события в RabbitMQ для других микросервисов
+    - Хранит временные ряды в TimescaleDB (специализированная БД для time-series данных)
+
+    ## Архитектура:
+    - **Monitoring Controller**: REST API для получения данных и отчётов
+    - **Device Monitoring Consumer**: Асинхронный подписчик на события от устройств
+    - **Device Monitoring Router**: Маршрутизация и фильтрация событий телеметрии
+    - **Monitoring Reporter**: Генерация аналитических отчётов из материализованных представлений
+    - **Monitoring Repository**: Доступ к TimescaleDB для чтения/записи временных рядов
+
+  version: 1.0.0
+  contact:
+    name: SmartHouse Development Team
+    email: it.fireteam@gmail.com
+servers:
+  - url: http://localhost:8083/api/v1
+    description: Development server
+  - url: http://device-monitoring:8083/api/v1
+    description: Docker internal network
+
+tags:
+  - name: telemetry
+    description: Получение исторических данных телеметрии
+  - name: reports
+    description: Формирование аналитических отчётов
+  - name: aggregates
+    description: Агрегированные данные и статистика
+
+paths:
+  /telemetry/devices/{deviceId}:
+    get:
+      tags:
+        - telemetry
+      summary: Получить историю телеметрии устройства
+      description: |
+        Возвращает временной ряд телеметрии для указанного устройства с возможностью фильтрации по времени.
+        Данные отсортированы по времени (от новых к старым).
+      operationId: getDeviceTelemetry
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: from
+          in: query
+          description: Начало временного диапазона (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-11-01T00:00:00Z"
+        - name: to
+          in: query
+          description: Конец временного диапазона (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-11-02T23:59:59Z"
+        - name: quality
+          in: query
+          description: Фильтр по качеству данных
+          required: false
+          schema:
+            type: string
+            enum: [GOOD, UNCERTAIN, BAD]
+        - name: limit
+          in: query
+          description: Максимальное количество записей
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1000
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Успешное получение истории телеметрии
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: string
+                    format: uuid
+                  location:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelemetryData'
+                  total:
+                    type: integer
+                    description: Общее количество записей в диапазоне
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /telemetry/devices/{deviceId}/latest:
+    get:
+      tags:
+        - telemetry
+      summary: Получить последнее значение телеметрии
+      description: Возвращает самое свежее значение телеметрии для устройства
+      operationId: getLatestTelemetry
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Успешное получение последнего значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryData'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /telemetry/location/{location}:
+    get:
+      tags:
+        - telemetry
+      summary: Получить телеметрию по местоположению
+      description: |
+        Возвращает историю телеметрии для всех устройств в указанном местоположении.
+        Полезно для анализа микроклимата в конкретной зоне.
+      operationId: getTelemetryByLocation
+      parameters:
+        - name: location
+          in: path
+          required: true
+          description: Местоположение (например, "Living Room", "Bedroom")
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Начало временного диапазона
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Конец временного диапазона
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 1000
+      responses:
+        '200':
+          description: Успешное получение данных
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  location:
+                    type: string
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        device_id:
+                          type: string
+                          format: uuid
+                        data:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/TelemetryData'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /aggregates/devices/{deviceId}:
+    get:
+      tags:
+        - aggregates
+      summary: Получить агрегированные данные устройства
+      description: |
+        Возвращает статистику по телеметрии устройства за указанный период с заданной детализацией.
+        Использует материализованные представления TimescaleDB для быстрого доступа.
+      operationId: getDeviceAggregates
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: from
+          in: query
+          required: true
+          description: Начало периода
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          description: Конец периода
+          schema:
+            type: string
+            format: date-time
+        - name: interval
+          in: query
+          description: Интервал агрегации
+          required: false
+          schema:
+            type: string
+            enum: [1m, 5m, 15m, 1h, 6h, 1d]
+            default: "1h"
+            example: "1h"
+      responses:
+        '200':
+          description: Успешное получение агрегированных данных
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: string
+                    format: uuid
+                  location:
+                    type: string
+                  interval:
+                    type: string
+                  time_range:
+                    $ref: '#/components/schemas/TimeRange'
+                  aggregates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelemetryAggregate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /aggregates/devices/{deviceId}/statistics:
+    get:
+      tags:
+        - aggregates
+      summary: Получить статистику по устройству
+      description: |
+        Возвращает общую статистику по устройству за указанный период:
+        минимум, максимум, среднее, стандартное отклонение, количество измерений.
+      operationId: getDeviceStatistics
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Успешное получение статистики
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryStatistics'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /reports/devices/{deviceId}/daily:
+    get:
+      tags:
+        - reports
+      summary: Получить ежедневный отчёт по устройству
+      description: |
+        Формирует ежедневный отчёт о работе устройства с почасовой детализацией,
+        анализом трендов и выявлением аномалий.
+      operationId: getDailyReport
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: date
+          in: query
+          required: true
+          description: Дата отчёта (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2025-11-02"
+      responses:
+        '200':
+          description: Успешное формирование отчёта
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: Уникальный идентификатор устройства
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    TelemetryData:
+      type: object
+      required:
+        - id
+        - device_id
+        - sensor_id
+        - location
+        - value
+        - unit
+        - quality
+        - timestamp
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор записи телеметрии
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        device_id:
+          type: string
+          format: uuid
+          description: Идентификатор устройства
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        sensor_id:
+          type: string
+          description: Идентификатор датчика
+          example: "temp_sensor_001"
+        location:
+          type: string
+          description: Местоположение устройства
+          example: "Living Room"
+        value:
+          type: number
+          format: float
+          description: Значение измерения
+          example: 22.5
+        unit:
+          type: string
+          description: Единица измерения
+          example: "celsius"
+        quality:
+          type: string
+          enum: [GOOD, UNCERTAIN, BAD]
+          description: |
+            Качество данных:
+            - GOOD: данные валидны и надёжны
+            - UNCERTAIN: данные могут быть неточными
+            - BAD: данные недостоверны
+          example: "GOOD"
+        timestamp:
+          type: string
+          format: date-time
+          description: Время измерения
+          example: "2025-11-02T10:30:00Z"
+
+    TelemetryAggregate:
+      type: object
+      required:
+        - time_bucket
+        - avg_value
+        - min_value
+        - max_value
+        - count
+      properties:
+        time_bucket:
+          type: string
+          format: date-time
+          description: Начало временного интервала агрегации
+          example: "2025-11-02T10:00:00Z"
+        avg_value:
+          type: number
+          format: float
+          description: Среднее значение за интервал
+          example: 22.3
+        min_value:
+          type: number
+          format: float
+          description: Минимальное значение за интервал
+          example: 21.8
+        max_value:
+          type: number
+          format: float
+          description: Максимальное значение за интервал
+          example: 22.9
+        count:
+          type: integer
+          description: Количество измерений в интервале
+          example: 60
+        stddev:
+          type: number
+          format: float
+          description: Стандартное отклонение
+          nullable: true
+          example: 0.3
+
+    TelemetryStatistics:
+      type: object
+      required:
+        - device_id
+        - time_range
+        - statistics
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        location:
+          type: string
+        time_range:
+          $ref: '#/components/schemas/TimeRange'
+        statistics:
+          type: object
+          properties:
+            min:
+              type: number
+              format: float
+              example: 18.5
+            max:
+              type: number
+              format: float
+              example: 25.2
+            avg:
+              type: number
+              format: float
+              example: 22.1
+            median:
+              type: number
+              format: float
+              example: 22.0
+            stddev:
+              type: number
+              format: float
+              example: 1.2
+            total_count:
+              type: integer
+              example: 1440
+            good_quality_count:
+              type: integer
+              description: Количество измерений с качеством GOOD
+              example: 1420
+            bad_quality_count:
+              type: integer
+              description: Количество измерений с качеством BAD
+              example: 20
+
+    DailyReport:
+      type: object
+      required:
+        - device_id
+        - date
+        - location
+        - summary
+        - hourly_data
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          example: "2025-11-02"
+        location:
+          type: string
+          example: "Living Room"
+        summary:
+          type: object
+          properties:
+            avg_temperature:
+              type: number
+              format: float
+              example: 22.1
+            min_temperature:
+              type: number
+              format: float
+              example: 19.5
+            max_temperature:
+              type: number
+              format: float
+              example: 24.8
+            temperature_range:
+              type: number
+              format: float
+              description: Разброс температуры (max - min)
+              example: 5.3
+            data_quality_percent:
+              type: number
+              format: float
+              description: Процент данных с качеством GOOD
+              example: 98.5
+            total_measurements:
+              type: integer
+              example: 1440
+        hourly_data:
+          type: array
+          description: Почасовая детализация
+          items:
+            type: object
+            properties:
+              hour:
+                type: integer
+                minimum: 0
+                maximum: 23
+                example: 10
+              avg_value:
+                type: number
+                format: float
+                example: 22.3
+              min_value:
+                type: number
+                format: float
+              max_value:
+                type: number
+                format: float
+              count:
+                type: integer
+        anomalies:
+          type: array
+          description: Обнаруженные аномалии
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              type:
+                type: string
+                enum: [spike, drop, missing_data, bad_quality]
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [low, medium, high]
+        trends:
+          type: object
+          description: Выявленные тренды
+          properties:
+            overall_trend:
+              type: string
+              enum: [rising, falling, stable]
+              example: "stable"
+            trend_coefficient:
+              type: number
+              format: float
+              description: Коэффициент тренда (наклон)
+              example: 0.05
+
+
+    TimeRange:
+      type: object
+      required:
+        - from
+        - to
+      properties:
+        from:
+          type: string
+          format: date-time
+          example: "2025-11-01T00:00:00Z"
+        to:
+          type: string
+          format: date-time
+          example: "2025-11-02T23:59:59Z"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+          example: "DEVICE_NOT_FOUND"
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки
+          example: "Device with ID 123e4567-e89b-12d3-a456-426614174000 not found"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Invalid time range: 'from' must be before 'to'"
+            details:
+              field: "from"
+              value: "2025-11-03T00:00:00Z"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "DEVICE_NOT_FOUND"
+            message: "Device with ID 123e4567-e89b-12d3-a456-426614174000 not found"
+
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_ERROR"
+            message: "An unexpected error occurred while processing the request"
