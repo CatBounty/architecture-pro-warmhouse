@@ -95,19 +95,21 @@
 
 ![device_control_service_component-____Device_Control_Service.svg](schemas/device_control_service_component-____Device_Control_Service.svg)
 
-[Диаграмма компонента Device Control Service.puml](schemas/device_control_service_component.puml)
+[Диаграмма компонента Device Control Service(PlantUML)](schemas/device_control_service_component.puml)
 
 ![device_monitoring_service_component-____Device_Monitoring_Service.svg](schemas/device_monitoring_service_component-____Device_Monitoring_Service.svg)
 
-[Диаграмма компонента Device Monitoring Service.puml](schemas/device_monitoring_service_component.puml)
+[Диаграмма компонента Device Monitoring Service(PlantUML)](schemas/device_monitoring_service_component.puml)
 
 ![Диаграмма компонента Device Notification_Service.svg](schemas/notification_service_component-____Notification_Service.svg)
 
-[Диаграмма компонента Device Notification_Service.puml](schemas/notification_service_component.puml)
+[Диаграмма компонента Device Notification_Service(PlantUML)](schemas/notification_service_component.puml)
 
 **Диаграмма кода (Code)**
 
-Добавьте одну диаграмму или несколько.
+![device_control_service_class-____Device_Management_Service.svg](schemas/device_control_service_class-____Device_Management_Service.svg)
+
+[Диаграмма классов Device Management Service(PlantUML)](schemas/device_control_service_class.puml)
 
 # Задание 3. Разработка ER-диаграммы
 

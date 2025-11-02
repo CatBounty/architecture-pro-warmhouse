@@ -1,0 +1,155 @@
+@startuml
+title Диаграмма классов - Device Management Service
+
+package "Domain Layer" {
+    class Device {
+        - id: UUID
+        - name: String
+        - type: DeviceType
+        - location: String
+        - status: DeviceStatus
+        - metadata: Map<String, String>
+        - createdAt: Timestamp
+        - updatedAt: Timestamp
+        --
+        + create(name, type, location): Device
+        + updateStatus(status: DeviceStatus): void
+        + updateMetadata(key, value): void
+        + isActive(): boolean
+        + validate(): ValidationResult
+    }
+
+    enum DeviceType {
+        TEMPERATURE_SENSOR
+        HEATING_ACTUATOR
+        THERMOSTAT
+    }
+
+    enum DeviceStatus {
+        ACTIVE
+        INACTIVE
+        OFFLINE
+        ERROR
+    }
+
+    interface DeviceRepository {
+        + save(device: Device): Device
+        + findById(id: UUID): Optional<Device>
+        + findAll(): List<Device>
+        + findByLocation(location: String): List<Device>
+        + findByType(type: DeviceType): List<Device>
+        + delete(id: UUID): void
+    }
+
+    class DeviceService {
+        - repository: DeviceRepository
+        - eventPublisher: EventPublisher
+        - validator: DeviceValidator
+        --
+        + createDevice(request: CreateDeviceRequest): Device
+        + updateDevice(id: UUID, request: UpdateDeviceRequest): Device
+        + deleteDevice(id: UUID): void
+        + getDevice(id: UUID): Device
+        + listDevices(filters: DeviceFilters): List<Device>
+        + updateDeviceStatus(id: UUID, status: DeviceStatus): Device
+    }
+
+    class DeviceValidator {
+        + validateCreate(request: CreateDeviceRequest): ValidationResult
+        + validateUpdate(request: UpdateDeviceRequest): ValidationResult
+        + validateLocation(location: String): boolean
+    }
+
+    interface EventPublisher {
+        + publish(event: DomainEvent): void
+    }
+
+    interface DeviceEventConsumer {
+            + consume(event: DeviceEvent): void
+        }
+}
+
+package "DeviceEvents" {
+    abstract class DeviceEvent {
+            - deviceId: UUID
+            - eventId: UUID
+            - timestamp: Timestamp
+            - eventType: String
+    }
+
+    class DeviceCreatedEvent extends DeviceEvent {
+        - metaData: String
+    }
+
+    class DeviceDeletedEvent extends DeviceEvent {
+        - user: String
+        - reason: String
+    }
+
+    class DeviceStatusChangedEvent extends DeviceEvent {
+        - oldStatus: DeviceStatus
+        - newStatus: DeviceStatus
+        - reason: String
+    }
+}
+
+package "Events" {
+    abstract class DomainEvent {
+        - eventId: UUID
+        - aggregateId: UUID
+        - timestamp: Timestamp
+        - eventType: String
+    }
+
+    class DeviceCreatedEvent extends DomainEvent {
+        - device: Device
+    }
+
+    class DeviceStatusChangedEvent extends DomainEvent {
+        - deviceId: UUID
+        - oldStatus: DeviceStatus
+        - newStatus: DeviceStatus
+    }
+
+    class DeviceDeletedEvent extends DomainEvent {
+        - deviceId: UUID
+    }
+}
+
+package "API Layer" {
+    class DeviceController {
+        - deviceService: DeviceService
+        --
+        + createDevice(request: CreateDeviceRequest): Response
+        + getDevice(id: UUID): Response
+        + updateDevice(id: UUID, request: UpdateDeviceRequest): Response
+        + deleteDevice(id: UUID): Response
+        + listDevices(query: QueryParams): Response
+    }
+
+    class CreateDeviceRequest {
+        + name: String
+        + type: String
+        + location: String
+        + metadata: Map<String, String>
+    }
+
+    class UpdateDeviceRequest {
+        + name: String
+        + location: String
+        + metadata: Map<String, String>
+    }
+}
+
+DeviceController --> DeviceService
+DeviceEventConsumer --> DeviceService
+DeviceService --> DeviceRepository
+DeviceService --> EventPublisher
+DeviceService --> DeviceValidator
+DeviceService ..> Device
+EventPublisher ..> DomainEvent
+DeviceEventConsumer ..> DeviceEvents
+Device --> DeviceType
+Device --> DeviceStatus
+
+@enduml
