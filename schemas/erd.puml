@@ -1,0 +1,101 @@
+@startuml
+
+Title ER-диаграмма "Умный дом"
+
+entity "User" as User {
+  * id : UUID
+  --
+  username : String
+  email : String
+  password_hash : String
+  created_at : DateTime
+  role : String
+}
+
+entity "House" as House {
+  * id : UUID
+  --
+  owner_id : UUID
+  name : String
+  address : String
+  created_at : DateTime
+}
+
+entity "Device" as Device {
+  * id : UUID
+  --
+  serial_number : String
+  type_id : UUID
+  house_id : UUID
+  name : String
+  status : String
+  firmware_version : String
+  last_seen : DateTime
+  is_online : Boolean
+}
+
+entity "DeviceType" as DeviceType {
+  * id : UUID
+  --
+  name : String
+  category : String
+  protocol : String
+  description : String
+}
+
+entity "Module" as Module {
+  * id : UUID
+  --
+  name : String
+  device_id : UUID
+  type : String
+  value : Double
+  unit : String
+}
+
+entity "TelemetryData" as TelemetryData {
+  * id : UUID
+  --
+  device_id : UUID
+  timestamp : DateTime
+  temperature : Double
+  humidity : Double
+  power : Double
+  status : String
+  raw_data : JSON
+}
+
+entity "AutomationScene" as AutomationScene {
+  * id : UUID
+  --
+  house_id : UUID
+  name : String
+  description : String
+  created_at : DateTime
+  updated_at : DateTime
+  is_active : Boolean
+}
+
+entity "SceneDevice" as SceneDevice {
+  * id : UUID
+  --
+  scene_id : UUID
+  device_id : UUID
+  action : String
+  order : Integer
+  delay_sec : Integer
+}
+
+' Связи
+User ||--o{ House : "owns"
+House ||--o{ Device : "contains"
+House ||--o{ AutomationScene : "has scenes"
+
+Device }o--|| DeviceType : "has type"
+Device ||--o{ Module : "has"
+Device ||--o{ TelemetryData : "sends"
+
+AutomationScene ||--o{ SceneDevice : "includes"
+Device ||--o{ SceneDevice : "used in"
+
+@enduml
